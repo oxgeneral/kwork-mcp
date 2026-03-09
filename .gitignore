@@ -1,7 +1,15 @@
+# Secrets
+.env
+.kwork_token.json
 cookies.json
+
+# Python
 __pycache__/
 *.pyc
 *.pyo
-.env
+.venv/
+
+# Runtime
 *.log
 screenshots/
+/tmp/

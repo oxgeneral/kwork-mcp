@@ -1,57 +1,85 @@
 # kwork-mcp
 
-MCP server for [Kwork.ru](https://kwork.ru) — the Russian freelance marketplace. Provides tools for managing inbox, orders, project exchange, and account stats through the Model Context Protocol.
+MCP-сервер для [Kwork.ru](https://kwork.ru) — российской фриланс-платформы. 14 инструментов для полного управления аккаунтом через [Model Context Protocol](https://modelcontextprotocol.io).
 
-Built with [FastMCP](https://github.com/jlowin/fastmcp) + [Playwright](https://playwright.dev/) for browser automation.
+Основной транспорт — **HTTP API** (`api.kwork.ru`). Playwright используется как fallback для операций без API (подача предложений, скриншоты).
 
-## Tools
+## Инструменты
 
-| Tool | Description |
-|------|-------------|
-| `kwork_inbox_list` | List inbox conversations with previews, times, unread counts |
-| `kwork_inbox_read` | Read full conversation with a user by ID or username |
-| `kwork_inbox_send` | Send a message to a user in inbox |
-| `kwork_order_list` | List active orders with IDs and titles |
-| `kwork_order_read` | Read order details and chat messages |
-| `kwork_order_send` | Send a message in order chat |
-| `kwork_exchange_browse` | Browse project exchange with optional category/page |
-| `kwork_stats` | Get connects remaining and account balance |
+| # | Инструмент | Описание | Транспорт |
+|---|-----------|----------|-----------|
+| 1 | `kwork_inbox` | Список диалогов (все / непрочитанные) | API |
+| 2 | `kwork_dialog` | Полный диалог с пользователем | API |
+| 3 | `kwork_send` | Отправить сообщение пользователю | API |
+| 4 | `kwork_orders` | Список заказов (active/completed/cancelled) | API |
+| 5 | `kwork_order` | Детали заказа + чат (3 параллельных вызова) | API |
+| 6 | `kwork_order_message` | Сообщение в чат заказа | API |
+| 7 | `kwork_order_deliver` | Сдать заказ на проверку | API |
+| 8 | `kwork_exchange` | Биржа проектов (фильтры, поиск, пагинация) | API |
+| 9 | `kwork_project` | Детали проекта на бирже | API |
+| 10 | `kwork_propose` | Подать предложение на проект | Playwright |
+| 11 | `kwork_my_kworks` | Список моих кворков | API |
+| 12 | `kwork_kwork_toggle` | Пауза / активация кворка | API |
+| 13 | `kwork_stats` | Статистика: баланс, рейтинг, заказы | API |
+| 14 | `kwork_screenshot` | Скриншот любой страницы Kwork | Playwright |
 
-## Setup
+## Установка
 
 ```bash
+git clone https://github.com/your-username/kwork-mcp.git
+cd kwork-mcp
+python3 -m venv .venv
+source .venv/bin/activate
 pip install -r requirements.txt
-playwright install chromium
+python -m playwright install chromium
 ```
 
-### Authentication
+## Настройка
 
-Export your Kwork session cookies to `cookies.json` in the project root. The file should contain an array of cookie objects:
+Создайте файл `.env` в корне проекта:
+
+```env
+KWORK_LOGIN=your_email@example.com
+KWORK_PASSWORD=your_password
+```
+
+Для Playwright-инструментов (скриншоты, подача предложений) экспортируйте cookies из браузера в `cookies.json`:
 
 ```json
 [
-  {
-    "name": "PHPSESSID",
-    "value": "...",
-    "domain": "kwork.ru",
-    "path": "/"
-  }
+  {"name": "PHPSESSID", "value": "...", "domain": "kwork.ru", "path": "/"},
+  {"name": "csrf_user_token", "value": "...", "domain": "kwork.ru", "path": "/"}
 ]
 ```
 
-You can export cookies using browser extensions like [EditThisCookie](https://www.editthiscookie.com/) or [Cookie-Editor](https://cookie-editor.cgagnier.ca/).
+> Экспортировать cookies можно через расширения [Cookie-Editor](https://cookie-editor.cgagnier.ca/) или [EditThisCookie](https://www.editthiscookie.com/).
 
-## Usage
+## Использование
 
-### With Claude Desktop
+### Claude Desktop
 
-Add to your `claude_desktop_config.json`:
+Добавьте в `claude_desktop_config.json`:
 
 ```json
 {
   "mcpServers": {
     "kwork": {
-      "command": "python3",
+      "command": "/path/to/kwork-mcp/.venv/bin/python3",
+      "args": ["/path/to/kwork-mcp/server.py"]
+    }
+  }
+}
+```
+
+### Claude Code
+
+Добавьте в `.mcp.json` проекта:
+
+```json
+{
+  "mcpServers": {
+    "kwork": {
+      "command": "/path/to/kwork-mcp/.venv/bin/python3",
       "args": ["/path/to/kwork-mcp/server.py"]
     }
   }
@@ -64,17 +92,21 @@ Add to your `claude_desktop_config.json`:
 python3 server.py
 ```
 
-The server communicates over stdio using the MCP protocol.
+Сервер работает по протоколу MCP через stdio.
 
-## How it works
+## Архитектура
 
-The server uses Playwright to automate a headless Chromium browser with your Kwork session cookies. Each tool navigates to the relevant Kwork page and extracts data from the DOM using JavaScript evaluation.
+```
+server.py          — FastMCP сервер, 14 инструментов
+kwork_api.py       — HTTP-клиент api.kwork.ru (авторизация, кеш токена)
+kwork_browser.py   — Playwright fallback (headless Chromium)
+```
 
-- **Inbox**: Navigates to `/inbox`, clicks on conversations, reads messages from `.js-message-block` elements
-- **Orders**: Uses `/manage_orders` for listing, `/track?id=` for reading/sending
-- **Exchange**: Parses project cards from `/projects`
-- **Stats**: Reads connects from `/projects` and balance from `/balance`
+- **API-клиент** автоматически получает и кеширует токен (`.kwork_token.json`), обновляет при истечении
+- **Playwright** запускается лениво — только при первом вызове browser-инструмента
+- `kwork_order` делает 3 параллельных API-вызова через `asyncio.gather`
+- `kwork_order_message` автоматически определяет `user_id` заказчика
 
-## License
+## Лицензия
 
 MIT
