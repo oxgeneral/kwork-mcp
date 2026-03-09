@@ -492,7 +492,20 @@ async def kwork_stats(ctx: Context) -> str:
     """Статистика аккаунта: баланс, рейтинг, заказы, коннекты."""
     try:
         state = _state(ctx)
-        actor = await state.api.get_actor()
+        actor, connects_info = await asyncio.gather(
+            state.api.get_actor(),
+            state.api.get_connects(),
+            return_exceptions=True,
+        )
+        if isinstance(actor, Exception):
+            return f"Ошибка: {actor}"
+
+        if isinstance(connects_info, dict):
+            active = connects_info.get("active_connects", "?")
+            total = connects_info.get("all_connects", "?")
+            connects_str = f"{active} из {total}"
+        else:
+            connects_str = "?"
 
         lines = [
             "=== Статистика Kwork ===",
@@ -501,7 +514,8 @@ async def kwork_stats(ctx: Context) -> str:
             f"Баланс: {actor.get('free_amount', 0)}₽ (в холде: {actor.get('hold_amount', 0)}₽)",
             f"Выполнено заказов: {actor.get('completed_orders_count', 0)}",
             f"Кворков: {actor.get('kworks_count', 0)}",
-            f"Коннекты: {actor.get('offers_count', 0)}",
+            f"Коннекты: {connects_str}",
+            f"Активных откликов: {actor.get('offers_count', 0)}",
             f"Непрочитанных: {actor.get('unread_dialog_count', 0)} диалогов, {actor.get('unread_messages_count', 0)} сообщений",
             f"Статус: {actor.get('worker_status', '?')} | Аккаунт: {actor.get('status', '?')}",
             f"Специализация: {actor.get('specialization', '?')}",

@@ -145,6 +145,18 @@ class KworkApi:
         # Some endpoints return data directly (no {success, response} wrapper)
         return body.get("response", body)
 
+    async def _post_raw(self, endpoint: str, data: dict | None = None) -> dict:
+        """POST and return full response body (not just 'response' field)."""
+        token = await self._ensure_token()
+        url = f"{API_BASE}/{endpoint}?token={token}"
+        resp = await self._client.post(
+            url,
+            auth=BASIC_AUTH,
+            headers={"Content-Type": "application/x-www-form-urlencoded"},
+            data=data or {},
+        )
+        return resp.json()
+
     # ── Inbox / Dialogs ────────────────────────────────────────────────────
 
     async def get_dialogs(self) -> list[dict]:
@@ -256,6 +268,11 @@ class KworkApi:
 
     async def get_actor(self) -> dict:
         return await self._post("actor")
+
+    async def get_connects(self) -> dict:
+        """Get connects info: {all_connects, active_connects, update_time}."""
+        body = await self._post_raw("projects", {})
+        return body.get("connects", {})
 
     async def get_exchange_info(self) -> dict:
         return await self._post("exchangeInfo")
